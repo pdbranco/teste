@@ -5,27 +5,241 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SAP FSM Extension</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.2/axios.min.js"></script>
-    <!-- Keep existing styles -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .token-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .valid {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .invalid {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .token-display {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <button onclick="openModal()">Configure</button>
+    <button id="generateButton" onclick="generateToken()" disabled>Generate New Token</button>
+
+    <div id="tokenStatus" class="token-status"></div>
+    <div id="tokenDisplay" class="token-display">No token generated</div>
+
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <h2>SAP FSM Configuration</h2>
+            <div class="form-group">
+                <label for="cluster">Cluster:</label>
+                <input type="text" id="cluster" placeholder="e.g., us">
+            </div>
+            <div class="form-group">
+                <label for="clientId">Client ID:</label>
+                <input type="text" id="clientId">
+            </div>
+            <div class="form-group">
+                <label for="secretId">Secret ID:</label>
+                <input type="text" id="secretId">
+            </div>
+            <button onclick="saveAndGenerateToken()">Save and Generate Token</button>
+            <button onclick="closeModal()" style="background: #6c757d">Cancel</button>
+        </div>
+    </div>
+
     <script>
-        // Add environment variables through Render
+        // Environment variables
         window.env = {
             CLUSTER: '{{CLUSTER}}',
             CLIENT_ID: '{{CLIENT_ID}}',
             SECRET_ID: '{{SECRET_ID}}'
         };
-    </script>
-    <!-- Keep existing styles -->
-</head>
-<!-- Keep existing HTML -->
-<script>
-    // Modified functions to use env variables
-    function loadSavedConfig() {
-        document.getElementById('cluster').value = window.env.CLUSTER || getFromStorage('cluster') || '';
-        document.getElementById('clientId').value = window.env.CLIENT_ID || getFromStorage('clientId') || '';
-        document.getElementById('secretId').value = window.env.SECRET_ID || getFromStorage('secretId') || '';
-    }
 
-    // Keep rest of the existing JavaScript
-</script>
+        let tokenCheckInterval;
+
+        function openModal() {
+            document.getElementById('configModal').style.display = 'block';
+            loadSavedConfig();
+        }
+
+        function closeModal() {
+            document.getElementById('configModal').style.display = 'none';
+        }
+
+        function saveToStorage(key, value) {
+            localStorage.setItem(key, value);
+        }
+
+        function getFromStorage(key) {
+            return localStorage.getItem(key);
+        }
+
+        function loadSavedConfig() {
+            document.getElementById('cluster').value = window.env.CLUSTER || getFromStorage('cluster') || '';
+            document.getElementById('clientId').value = window.env.CLIENT_ID || getFromStorage('clientId') || '';
+            document.getElementById('secretId').value = window.env.SECRET_ID || getFromStorage('secretId') || '';
+        }
+
+        function saveConfig() {
+            const cluster = document.getElementById('cluster').value;
+            const clientId = document.getElementById('clientId').value;
+            const secretId = document.getElementById('secretId').value;
+
+            saveToStorage('cluster', cluster);
+            saveToStorage('clientId', clientId);
+            saveToStorage('secretId', secretId);
+        }
+
+        async function saveAndGenerateToken() {
+            saveConfig();
+            closeModal();
+            await generateToken();
+        }
+
+        function parseJwt(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function updateTokenStatus(token) {
+            const tokenStatus = document.getElementById('tokenStatus');
+            const generateButton = document.getElementById('generateButton');
+            
+            if (!token) {
+                tokenStatus.className = 'token-status invalid';
+                tokenStatus.textContent = 'No token available';
+                generateButton.disabled = false;
+                return;
+            }
+
+            const decoded = parseJwt(token);
+            if (!decoded) {
+                tokenStatus.className = 'token-status invalid';
+                tokenStatus.textContent = 'Invalid token';
+                generateButton.disabled = false;
+                return;
+            }
+
+            const expirationTime = decoded.exp * 1000;
+            const now = Date.now();
+            const isValid = expirationTime > now;
+
+            tokenStatus.className = `token-status ${isValid ? 'valid' : 'invalid'}`;
+            tokenStatus.textContent = isValid 
+                ? `Valid token (expires in ${Math.round((expirationTime - now) / 1000 / 60)} minutes)`
+                : 'Expired token';
+            generateButton.disabled = isValid;
+        }
+
+        async function generateToken() {
+            const cluster = window.env.CLUSTER || getFromStorage('cluster');
+            const clientId = window.env.CLIENT_ID || getFromStorage('clientId');
+            const secretId = window.env.SECRET_ID || getFromStorage('secretId');
+
+            if (!cluster || !clientId || !secretId) {
+                openModal();
+                return;
+            }
+
+            try {
+                const tokenUrl = `https://${cluster}.fsm.cloud.sap/api/oauth2/v2/token`;
+                const data = new URLSearchParams();
+                data.append('grant_type', 'client_credentials');
+                data.append('client_id', clientId);
+                data.append('client_secret', secretId);
+
+                const response = await axios.post(tokenUrl, data, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
+
+                const token = response.data.access_token;
+                document.getElementById('tokenDisplay').innerText = token;
+                saveToStorage('current_token', token);
+                updateTokenStatus(token);
+            } catch (error) {
+                alert('Error generating token: ' + error.message);
+                console.error('Complete error:', error);
+            }
+        }
+
+        // Check token status every minute
+        setInterval(() => {
+            const currentToken = getFromStorage('current_token');
+            updateTokenStatus(currentToken);
+        }, 60000);
+
+        // Check initial token
+        const currentToken = getFromStorage('current_token');
+        if (currentToken) {
+            document.getElementById('tokenDisplay').innerText = currentToken;
+            updateTokenStatus(currentToken);
+        } else {
+            updateTokenStatus(null);
+        }
+    </script>
 </body>
 </html>
