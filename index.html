@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP FSM Extension</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.2/axios.min.js"></script>
+    <!-- Keep existing styles -->
+    <script>
+        // Add environment variables through Render
+        window.env = {
+            CLUSTER: '{{CLUSTER}}',
+            CLIENT_ID: '{{CLIENT_ID}}',
+            SECRET_ID: '{{SECRET_ID}}'
+        };
+    </script>
+    <!-- Keep existing styles -->
+</head>
+<!-- Keep existing HTML -->
+<script>
+    // Modified functions to use env variables
+    function loadSavedConfig() {
+        document.getElementById('cluster').value = window.env.CLUSTER || getFromStorage('cluster') || '';
+        document.getElementById('clientId').value = window.env.CLIENT_ID || getFromStorage('clientId') || '';
+        document.getElementById('secretId').value = window.env.SECRET_ID || getFromStorage('secretId') || '';
+    }
+
+    // Keep rest of the existing JavaScript
+</script>
+</body>
+</html>
